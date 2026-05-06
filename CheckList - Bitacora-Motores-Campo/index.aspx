@@ -15,11 +15,7 @@
             theme: {
                 extend: {
                     colors: {
-                        cerrejon: {
-                            gold: '#E2B53C',
-                            orange: '#C77953',
-                            dark: '#1a202c',
-                        }
+                        cerrejon: { gold: '#E2B53C', orange: '#C77953', dark: '#1a202c' }
                     }
                 }
             }
@@ -32,14 +28,11 @@
             font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background-image: url('./img/img-background.png'); 
             background-color: #1a202c;
-            background-size: cover; 
-            background-position: center center;
-            background-attachment: fixed; 
-            background-repeat: no-repeat;
+            background-size: cover; background-position: center center;
+            background-attachment: fixed; background-repeat: no-repeat;
         }
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-        
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         .animate-fade-in { animation: fadeIn 0.2s ease-out forwards; }
     </style>
@@ -52,25 +45,27 @@
 
         const SP_CONFIG = {
             siteUrl: "https://glencore.sharepoint.com/sites/co-lmn-sgia/checklist",
-            listTitle: "Bitacora-Motores-Campo",
-            imagesListTitle: "Bitacora-user-images"
+            listTitle: "DB_BITACORA"
         };
+
+        const getCurrentDate = () => new Date().toISOString().split('T')[0];
 
         const initialFormState = {
-            Title: "", 
-            Fecha: "",
-            OT: "",
-            Turno: "1",
+            Fecha: getCurrentDate(),
+            OTCliente: "",
+            Turno: "Dia",
+            Grupo: "Guerreros",
             Equipo: "",
             Diagnostico: "",
-            Tecnicos: "",
-            BacklogRegistrado: "",
-            RegistraBacklogAMTFormato: "SI",
+            TrabajosRealizados: "",
+            Tecnicos: [], 
+            RegistraBacklogAMTFormato: "NO",
+            Backlogs: [], 
             EquipoDisponible: "SI",
-            Pendientes: ""
+            HistorialPendientes: [], 
+            ImagenesBase64: [] 
         };
 
-        // Utilidad para convertir un Archivo a string Base64
         const fileToBase64 = (file) => new Promise((resolve, reject) => {
             const reader = new FileReader();
             reader.readAsDataURL(file);
@@ -78,35 +73,112 @@
             reader.onerror = error => reject(error);
         });
 
+        const PeoplePicker = ({ siteUrl, selectedUsers, onChange, disabled }) => {
+            const [query, setQuery] = useState("");
+            const [results, setResults] = useState([]);
+
+            const searchUsers = async (searchTerm) => {
+                if (searchTerm.length < 3) { setResults([]); return; }
+                try {
+                    const response = await fetch(`${siteUrl}/_api/contextinfo`, { method: 'POST', headers: { "Accept": "application/json;odata=verbose" }});
+                    const data = await response.json();
+                    const digest = data.d.GetContextWebInformation.FormDigestValue;
+
+                    const payload = {
+                        'queryParams': {
+                            '__metadata': { 'type': 'SP.UI.ApplicationPages.ClientPeoplePickerQueryParameters' },
+                            'AllowEmailAddresses': true, 'AllowMultipleEntities': false, 'AllUrlZones': false,
+                            'MaximumEntitySuggestions': 5, 'PrincipalSource': 15, 'PrincipalType': 1, 'QueryString': searchTerm
+                        }
+                    };
+
+                    const searchRes = await fetch(`${siteUrl}/_api/SP.UI.ApplicationPages.ClientPeoplePickerWebServiceInterface.clientPeoplePickerSearchUser`, {
+                        method: 'POST', body: JSON.stringify(payload),
+                        headers: { "Accept": "application/json;odata=verbose", "Content-Type": "application/json;odata=verbose", "X-RequestDigest": digest }
+                    });
+                    
+                    const searchData = await searchRes.json();
+                    setResults(JSON.parse(searchData.d.ClientPeoplePickerSearchUser));
+                } catch (error) { console.error(error); }
+            };
+
+            useEffect(() => {
+                const timeoutId = setTimeout(() => searchUsers(query), 500);
+                return () => clearTimeout(timeoutId);
+            }, [query]);
+
+            const addUser = (user) => {
+                if (!selectedUsers.find(u => u.correo === user.EntityData.Email)) {
+                    onChange([...selectedUsers, { nombre: user.DisplayText, correo: user.EntityData.Email }]);
+                }
+                setQuery(""); setResults([]);
+            };
+
+            const removeUser = (correo) => { onChange(selectedUsers.filter(u => u.correo !== correo)); };
+
+            return (
+                <div className="relative">
+                    <div className="flex flex-wrap gap-2 mb-2">
+                        {selectedUsers.map((user, idx) => (
+                            <div key={idx} className="flex items-center gap-2 bg-cerrejon-orange/20 text-cerrejon-dark px-3 py-1 rounded-full text-xs font-bold border border-cerrejon-orange/50">
+                                <img src={`${siteUrl}/_layouts/15/userphoto.aspx?size=S&accountname=${user.correo}`} className="w-5 h-5 rounded-full object-cover bg-white" alt="foto" onError={(e)=>{e.target.style.display='none'}} />
+                                <span>{user.nombre}</span>
+                                {!disabled && <button type="button" onClick={() => removeUser(user.correo)} className="hover:text-red-600">&times;</button>}
+                            </div>
+                        ))}
+                    </div>
+                    {!disabled && (
+                        <input type="text" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar nombre o correo..." className="block w-full rounded-xl bg-white/60 border-white/50 shadow-inner focus:bg-white focus:border-cerrejon-orange focus:ring-2 focus:ring-cerrejon-orange/50 transition-all p-3 text-sm outline-none" />
+                    )}
+                    {results.length > 0 && (
+                        <ul className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-xl max-h-60 overflow-y-auto">
+                            {results.map((user, idx) => (
+                                <li key={idx} onClick={() => addUser(user)} className="flex items-center gap-3 p-3 hover:bg-gray-100 cursor-pointer border-b border-gray-100">
+                                    <div className="flex flex-col"><span className="text-sm font-bold text-gray-800">{user.DisplayText}</span><span className="text-xs text-gray-500">{user.EntityData.Email}</span></div>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </div>
+            );
+        };
+
         function App() {
             const [formData, setFormData] = useState(initialFormState);
+            const [nuevoPendiente, setNuevoPendiente] = useState("");
             const [evidenceFiles, setEvidenceFiles] = useState([]); 
+            
             const [items, setItems] = useState([]);
             const [loading, setLoading] = useState(false);
             const [error, setError] = useState(null);
-            const [editingId, setEditingId] = useState(null);
             
+            // Estados de bloqueo y edición
+            const [editingId, setEditingId] = useState(null);
+            const [originalEstado, setOriginalEstado] = useState(null);
+            const [originalBacklog, setOriginalBacklog] = useState(null);
+            
+            const isEditing = !!editingId;
+            const lockBase = isEditing; 
+            const lockEstado = isEditing && originalEstado === "SI"; 
+            const lockRegistraBacklog = isEditing && originalBacklog === "SI";
+            const isClosed = originalEstado === "SI";
+            
+            const [viewModalItem, setViewModalItem] = useState(null); 
             const [modalImages, setModalImages] = useState(null); 
             const [activeImageIndex, setActiveImageIndex] = useState(0);
-            const [loadingImages, setLoadingImages] = useState(false);
 
             const fileInputRef = useRef(null);
 
             useEffect(() => { fetchItems(); }, []);
 
             const getRequestDigest = async () => {
-                const response = await fetch(`${SP_CONFIG.siteUrl}/_api/contextinfo`, {
-                    method: 'POST',
-                    headers: { "Accept": "application/json;odata=verbose" }
-                });
+                const response = await fetch(`${SP_CONFIG.siteUrl}/_api/contextinfo`, { method: 'POST', headers: { "Accept": "application/json;odata=verbose" }});
                 const data = await response.json();
                 return data.d.GetContextWebInformation.FormDigestValue;
             };
 
-            const getEntityType = async (listName) => {
-                const response = await fetch(`${SP_CONFIG.siteUrl}/_api/web/lists/getbytitle('${listName}')?$select=ListItemEntityTypeFullName`, {
-                    headers: { "Accept": "application/json;odata=verbose" }
-                });
+            const getEntityType = async () => {
+                const response = await fetch(`${SP_CONFIG.siteUrl}/_api/web/lists/getbytitle('${SP_CONFIG.listTitle}')?$select=ListItemEntityTypeFullName`, { headers: { "Accept": "application/json;odata=verbose" }});
                 const data = await response.json();
                 return data.d.ListItemEntityTypeFullName;
             };
@@ -114,212 +186,124 @@
             const fetchItems = async () => {
                 setLoading(true);
                 try {
-                    const response = await fetch(`${SP_CONFIG.siteUrl}/_api/web/lists/getbytitle('${SP_CONFIG.listTitle}')/items?$top=100&$orderby=Created desc`, {
-                        headers: { "Accept": "application/json;odata=verbose" }
-                    });
-                    if (!response.ok) throw new Error("Error en la red al consultar la bit\u00E1cora");
+                    const response = await fetch(`${SP_CONFIG.siteUrl}/_api/web/lists/getbytitle('${SP_CONFIG.listTitle}')/items?$top=100&$orderby=Created desc`, { headers: { "Accept": "application/json;odata=verbose" }});
+                    if (!response.ok) throw new Error("Error consultando SharePoint");
                     const data = await response.json();
-                    setItems(data.d.results);
-                } catch (err) {
-                    setError("Fallo al cargar registros principales. " + err.message);
-                } finally {
-                    setLoading(false);
-                }
+                    
+                    const parsedItems = data.d.results.map(item => {
+                        try { return { ...item, parsedData: JSON.parse(item.Data) }; } 
+                        catch (e) { return { ...item, parsedData: { Error: "Formato JSON corrupto" } }; }
+                    });
+                    setItems(parsedItems);
+                } catch (err) { setError("Fallo al cargar registros principales."); } 
+                finally { setLoading(false); }
             };
+
+            const handleChange = (e) => { setFormData({ ...formData, [e.target.name]: e.target.value }); };
 
             const handleFileChange = (e) => {
-                const files = Array.from(e.target.files);
-                setEvidenceFiles(files);
+                setEvidenceFiles(Array.from(e.target.files));
             };
 
-            const handleChange = (e) => {
-                setFormData({ ...formData, [e.target.name]: e.target.value });
+            const addBacklog = () => {
+                setFormData({
+                    ...formData,
+                    Backlogs: [...(formData.Backlogs || []), { id: Date.now(), diagnostico: '', hd: '', hh: '', prioridad: 'P1', repuestos: [] }]
+                });
             };
 
-            // Lógica para guardar en la lista secundaria de imágenes en Base64
-            const uploadBase64Images = async (recordId, digest, entityTypeImages) => {
-                if (evidenceFiles.length === 0) return;
-                
-                // Ejecutamos secuencialmente en lugar de Promise.all para no colapsar la API con payloads gigantes
-                for (let i = 0; i < evidenceFiles.length; i++) {
-                    const file = evidenceFiles[i];
-                    const base64String = await fileToBase64(file);
-                    
-                    const imagePayload = {
-                        "__metadata": { "type": entityTypeImages },
-                        Title: file.name,
-                        ID_x002d_Registro: recordId.toString(), // Llave foránea (Verifica si el nombre interno es este)
-                        Evidencia: base64String
-                    };
+            const updateBacklog = (index, field, value) => {
+                const newBacklogs = [...formData.Backlogs];
+                newBacklogs[index][field] = value;
+                setFormData({ ...formData, Backlogs: newBacklogs });
+            };
 
-                    const response = await fetch(`${SP_CONFIG.siteUrl}/_api/web/lists/getbytitle('${SP_CONFIG.imagesListTitle}')/items`, {
-                        method: "POST",
-                        headers: {
-                            "Accept": "application/json;odata=verbose",
-                            "Content-Type": "application/json;odata=verbose",
-                            "X-RequestDigest": digest
-                        },
-                        body: JSON.stringify(imagePayload)
-                    });
+            const addRepuesto = (backlogIndex) => {
+                const newBacklogs = [...formData.Backlogs];
+                newBacklogs[backlogIndex].repuestos.push({ stockcode: '', cantidad: '' });
+                setFormData({ ...formData, Backlogs: newBacklogs });
+            };
 
-                    if (!response.ok) {
-                        const err = await response.json();
-                        console.error("Error guardando imagen:", err);
-                        throw new Error("Fallo al guardar la imagen en Base64. Posible exceso de tama\u00F1o (Payload Too Large).");
-                    }
-                }
+            const updateRepuesto = (bIndex, rIndex, field, value) => {
+                const newBacklogs = [...formData.Backlogs];
+                newBacklogs[bIndex].repuestos[rIndex][field] = value;
+                setFormData({ ...formData, Backlogs: newBacklogs });
             };
 
             const handleSubmit = async (e) => {
                 e.preventDefault();
-                setLoading(true);
-                setError(null);
+                setLoading(true); setError(null);
 
                 try {
                     const digest = await getRequestDigest();
-                    const entityTypeMain = await getEntityType(SP_CONFIG.listTitle);
-                    const entityTypeImages = evidenceFiles.length > 0 ? await getEntityType(SP_CONFIG.imagesListTitle) : null;
+                    const entityType = await getEntityType();
                     
-                    let formattedDate = null;
-                    if (formData.Fecha) {
-                        formattedDate = new Date(`${formData.Fecha}T12:00:00Z`).toISOString();
+                    let finalDataObj = { ...formData };
+
+                    if (finalDataObj.EquipoDisponible === "NO" && nuevoPendiente.trim() !== "") {
+                        finalDataObj.HistorialPendientes = [...(finalDataObj.HistorialPendientes || [])];
+                        finalDataObj.HistorialPendientes.push({ texto: nuevoPendiente, fechaHora: new Date().toLocaleString() });
                     }
 
-                    const itemPayload = {
-                        "__metadata": { "type": entityTypeMain },
-                        Title: formData.OT || "Sin OT",
-                        Fecha: formattedDate,
-                        OT: formData.OT,
-                        Turno: formData.Turno,
-                        Equipo: formData.Equipo,
-                        Diagnostico: formData.Diagnostico,
-                        Tecnicos: formData.Tecnicos,
-                        BacklogRegistrado: formData.BacklogRegistrado,
-                        RegistraBacklogAMTFormato: formData.RegistraBacklogAMTFormato,
-                        EquipoDisponible: formData.EquipoDisponible,
-                        Pendientes: formData.Pendientes
-                    };
-
-                    const url = editingId 
-                        ? `${SP_CONFIG.siteUrl}/_api/web/lists/getbytitle('${SP_CONFIG.listTitle}')/items(${editingId})`
-                        : `${SP_CONFIG.siteUrl}/_api/web/lists/getbytitle('${SP_CONFIG.listTitle}')/items`;
-
-                    const headers = {
-                        "Accept": "application/json;odata=verbose",
-                        "Content-Type": "application/json;odata=verbose",
-                        "X-RequestDigest": digest,
-                    };
-
-                    if (editingId) {
-                        headers["IF-MATCH"] = "*";
-                        headers["X-HTTP-Method"] = "MERGE";
+                    if (finalDataObj.EquipoDisponible === "SI" && finalDataObj.HistorialPendientes && finalDataObj.HistorialPendientes.length > 0) {
+                        const pendientesText = finalDataObj.HistorialPendientes.map(h => `[${h.fechaHora}] ${h.texto}`).join('\n');
+                        finalDataObj.TrabajosRealizados = (finalDataObj.TrabajosRealizados ? finalDataObj.TrabajosRealizados + '\n\n' : '') + "--- TAREAS COMPLETADAS DESDE PENDIENTES ---\n" + pendientesText;
+                        finalDataObj.HistorialPendientes = [];
                     }
 
-                    const response = await fetch(url, {
-                        method: "POST",
-                        headers: headers,
-                        body: JSON.stringify(itemPayload)
-                    });
-
-                    if (!response.ok) throw new Error("Error al guardar el registro principal.");
-                    
-                    let targetItemId = editingId;
-                    if (!editingId) {
-                        const responseData = await response.json();
-                        targetItemId = responseData.d.Id;
+                    let base64Images = [...(finalDataObj.ImagenesBase64 || [])];
+                    for (let file of evidenceFiles) {
+                        const b64 = await fileToBase64(file);
+                        base64Images.push({ name: file.name, data: b64 });
                     }
+                    finalDataObj.ImagenesBase64 = base64Images;
 
-                    // Inyectar imágenes en la lista relacional
-                    if (evidenceFiles.length > 0) {
-                        await uploadBase64Images(targetItemId, digest, entityTypeImages);
-                    }
+                    const itemPayload = { "__metadata": { "type": entityType }, Title: formData.OTCliente || "Sin OT", Data: JSON.stringify(finalDataObj) };
+                    const url = editingId ? `${SP_CONFIG.siteUrl}/_api/web/lists/getbytitle('${SP_CONFIG.listTitle}')/items(${editingId})` : `${SP_CONFIG.siteUrl}/_api/web/lists/getbytitle('${SP_CONFIG.listTitle}')/items`;
+                    const headers = { "Accept": "application/json;odata=verbose", "Content-Type": "application/json;odata=verbose", "X-RequestDigest": digest };
+                    if (editingId) { headers["IF-MATCH"] = "*"; headers["X-HTTP-Method"] = "MERGE"; }
+
+                    const response = await fetch(url, { method: "POST", headers: headers, body: JSON.stringify(itemPayload) });
+                    if (!response.ok) throw new Error("Fallo al guardar. Posible exceso de tama\u00F1o por im\u00E1genes.");
                     
                     setFormData(initialFormState);
-                    setEditingId(null);
+                    setNuevoPendiente(""); 
+                    setEditingId(null); 
+                    setOriginalEstado(null);
+                    setOriginalBacklog(null);
                     setEvidenceFiles([]);
                     if(fileInputRef.current) fileInputRef.current.value = "";
-                    
                     await fetchItems();
-                } catch (err) {
-                    setError(err.message);
-                } finally {
-                    setLoading(false);
-                }
+                } catch (err) { setError(err.message); } 
+                finally { setLoading(false); }
             };
 
             const handleEdit = (item) => {
+                const pd = item.parsedData;
+                if (!pd.Backlogs) pd.Backlogs = [];
+                
+                setOriginalEstado(pd.EquipoDisponible);
+                setOriginalBacklog(pd.RegistraBacklogAMTFormato);
                 setEditingId(item.Id);
-                let parsedDate = item.Fecha ? item.Fecha.split('T')[0] : "";
-                setFormData({
-                    Title: item.Title || "",
-                    Fecha: parsedDate,
-                    OT: item.OT || "", 
-                    Turno: item.Turno || "1",
-                    Equipo: item.Equipo || "",
-                    Diagnostico: item.Diagnostico || "",
-                    Tecnicos: item.Tecnicos || "",
-                    BacklogRegistrado: item.BacklogRegistrado || "",
-                    RegistraBacklogAMTFormato: item.RegistraBacklogAMTFormato || "SI",
-                    EquipoDisponible: item.EquipoDisponible || "SI",
-                    Pendientes: item.Pendientes || ""
-                });
-                setEvidenceFiles([]);
+                setFormData(pd);
+                setNuevoPendiente(""); setEvidenceFiles([]);
                 if(fileInputRef.current) fileInputRef.current.value = "";
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             };
 
-            // Consulta las imágenes de la base secundaria SOLO cuando se hace clic en el ojo (Lazy Load)
-            const openModal = async (recordId) => {
-                setLoadingImages(true);
-                try {
-                    const response = await fetch(`${SP_CONFIG.siteUrl}/_api/web/lists/getbytitle('${SP_CONFIG.imagesListTitle}')/items?$filter=ID_x002d_Registro eq '${recordId}'`, {
-                        headers: { "Accept": "application/json;odata=verbose" }
-                    });
-                    if (!response.ok) throw new Error("Error obteniendo im\u00E1genes");
-                    const data = await response.json();
-                    
-                    if (data.d.results.length === 0) {
-                        alert("Este registro no tiene im\u00E1genes vinculadas o el nombre interno 'ID_x002d_Registro' es incorrecto.");
-                        return;
-                    }
-                    
-                    setModalImages(data.d.results);
-                    setActiveImageIndex(0);
-                } catch (err) {
-                    alert("Fallo la carga de im\u00E1genes. Verifica la consola.");
-                    console.error(err);
-                } finally {
-                    setLoadingImages(false);
-                }
-            };
-
-            const closeModal = () => {
-                setModalImages(null);
-            };
-
-            const prevImage = () => {
-                setActiveImageIndex((prev) => (prev === 0 ? modalImages.length - 1 : prev - 1));
-            };
-
-            const nextImage = () => {
-                setActiveImageIndex((prev) => (prev === modalImages.length - 1 ? 0 : prev + 1));
-            };
-
             const glassCard = "bg-white/70 backdrop-blur-xl border border-white/40 shadow-2xl rounded-2xl";
-            const inputClass = "block w-full rounded-xl bg-white/60 border-white/50 shadow-inner focus:bg-white focus:border-cerrejon-orange focus:ring-2 focus:ring-cerrejon-orange/50 transition-all duration-300 p-3 text-sm font-medium outline-none";
+            const inputClass = "block w-full rounded-xl bg-white/60 border-white/50 shadow-inner focus:bg-white focus:border-cerrejon-orange focus:ring-2 focus:ring-cerrejon-orange/50 transition-all p-3 text-sm outline-none disabled:opacity-60 disabled:cursor-not-allowed disabled:bg-gray-200/50";
             const labelClass = "block text-xs font-bold text-gray-700 mb-2 uppercase tracking-widest";
 
             return (
-                <div className="max-w-7xl mx-auto py-10 px-4 sm:px-6 lg:px-8 min-h-screen flex flex-col gap-10 relative">
+                <div className="max-w-[1400px] mx-auto py-10 px-4 sm:px-6 lg:px-8 min-h-screen flex flex-col gap-10 relative">
                     
-                    <header className={`${glassCard} p-6 flex flex-col md:flex-row items-center justify-between relative overflow-hidden`}>
+                    <header className={`${glassCard} p-6 flex items-center justify-between relative overflow-hidden`}>
                         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-cerrejon-gold via-cerrejon-orange to-red-600"></div>
                         <div className="flex items-center gap-5 z-10">
                             <div className="p-3 bg-white/80 rounded-xl shadow-sm backdrop-blur-sm">
                                 <svg width="36" height="36" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                    <path d="M12 2L2 22H22L12 2Z" fill="#C77953"/>
-                                    <path d="M12 8L6 20H18L12 8Z" fill="#E2B53C"/>
-                                    <path d="M12 14L9 20H15L12 14Z" fill="#1a202c"/>
+                                    <path d="M12 2L2 22H22L12 2Z" fill="#C77953"/><path d="M12 8L6 20H18L12 8Z" fill="#E2B53C"/><path d="M12 14L9 20H15L12 14Z" fill="#1a202c"/>
                                 </svg>
                             </div>
                             <div>
@@ -329,188 +313,192 @@
                         </div>
                     </header>
                     
-                    {error && (
-                        <div className="bg-red-500/90 backdrop-blur-md text-white border-l-4 border-white p-4 rounded-xl shadow-lg animate-pulse">
-                            <p className="font-medium tracking-wide text-sm">{error}</p>
-                        </div>
-                    )}
+                    {error && (<div className="bg-red-500/90 backdrop-blur-md text-white border-l-4 border-white p-4 rounded-xl shadow-lg"><p className="font-medium text-sm">{error}</p></div>)}
 
-                    {/* FORMULARIO: AHORA OCUPA TODO EL ANCHO ARRIBA */}
+                    {/* FORMULARIO DE EDICIÓN/CREACIÓN */}
                     <div className={`${glassCard} p-8 w-full transition-all duration-500`}>
-                        <div className="mb-6 flex items-center justify-between">
+                        <div className="mb-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                             <h2 className="text-2xl font-extrabold text-gray-800 tracking-tight">
-                                {editingId ? "Actualizar Registro Existente" : "Nuevo Registro en Bit\u00E1cora"}
+                                {isClosed && isEditing ? "Registro Cerrado (Solo edici\u00F3n de Backlogs)" : (isEditing ? "Actualizar Registro (Campos Base Bloqueados)" : "Nuevo Registro de Bit\u00E1cora JSON")}
                             </h2>
-                            {editingId && <span className="px-4 py-2 bg-cerrejon-gold/20 text-cerrejon-orange text-sm font-bold rounded-full uppercase">Modo Edici&oacute;n</span>}
+                            {isClosed && isEditing && <span className="px-4 py-2 bg-green-600 text-white text-xs font-bold rounded-full uppercase shadow-md">Equipo Disponible</span>}
+                            {!isClosed && isEditing && <span className="px-4 py-2 bg-red-600 text-white text-xs font-bold rounded-full uppercase shadow-md">Equipo No Disponible</span>}
                         </div>
 
                         <form onSubmit={handleSubmit} className="space-y-6">
                             
-                            <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
+                            <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
+                                <div><label className={labelClass}>Fecha de Ejecuci&oacute;n</label><input type="date" name="Fecha" value={formData.Fecha} onChange={handleChange} disabled={lockBase} className={inputClass} required /></div>
+                                <div><label className={labelClass}>OT Cliente</label><input type="text" name="OTCliente" value={formData.OTCliente} onChange={handleChange} disabled={lockBase} className={inputClass} placeholder="Ej. 104599" required /></div>
                                 <div>
-                                    <label className={labelClass}>Fecha de Ejecuci&oacute;n</label>
-                                    <input type="date" name="Fecha" value={formData.Fecha} onChange={handleChange} className={inputClass} required />
-                                </div>
-                                <div>
-                                    <label className={labelClass}>N&uacute;mero OT</label>
-                                    <input type="text" name="OT" value={formData.OT} onChange={handleChange} className={inputClass} placeholder="Ej. 104599" required />
-                                </div>
-                                <div>
-                                    <label className={labelClass}>Turno Asignado</label>
-                                    <select name="Turno" value={formData.Turno} onChange={handleChange} className={inputClass}>
-                                        <option value="1">Turno 1 (Ma&ntilde;ana)</option>
-                                        <option value="2">Turno 2 (Tarde)</option>
-                                        <option value="3">Turno 3 (Noche)</option>
+                                    <label className={labelClass}>Turno</label>
+                                    <select name="Turno" value={formData.Turno} onChange={handleChange} disabled={lockBase} className={inputClass}>
+                                        <option value="Dia">D&iacute;a</option><option value="Noche">Noche</option>
                                     </select>
                                 </div>
                                 <div>
-                                    <label className={labelClass}>Equipo Intervenido</label>
-                                    <input type="text" name="Equipo" value={formData.Equipo} onChange={handleChange} className={inputClass} placeholder="ID del Equipo" required />
+                                    <label className={labelClass}>Grupo</label>
+                                    <select name="Grupo" value={formData.Grupo} onChange={handleChange} disabled={lockBase} className={inputClass}>
+                                        <option value="Guerreros">Guerreros</option><option value="Jaguares">Jaguares</option><option value="Cardenales">Cardenales</option><option value="Valientes">Valientes</option>
+                                    </select>
                                 </div>
+                                <div><label className={labelClass}>Equipo Intervenido</label><input type="text" name="Equipo" value={formData.Equipo} onChange={handleChange} disabled={lockBase} className={inputClass} required /></div>
                             </div>
+
+                            <div><label className={labelClass}>Diagn&oacute;stico Inicial</label><textarea name="Diagnostico" value={formData.Diagnostico} onChange={handleChange} disabled={lockBase} rows="2" className={`${inputClass} resize-none`} placeholder="Describe brevemente la falla..."></textarea></div>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div className="space-y-6">
-                                    <div>
-                                        <label className={labelClass}>Diagn&oacute;stico Inicial</label>
-                                        <textarea name="Diagnostico" value={formData.Diagnostico} onChange={handleChange} rows="3" className={`${inputClass} resize-none`} placeholder="Describe brevemente la falla..."></textarea>
-                                    </div>
-                                    <div>
-                                        <label className={labelClass}>T&eacute;cnicos a Cargo</label>
-                                        <input type="text" name="Tecnicos" value={formData.Tecnicos} onChange={handleChange} className={inputClass} placeholder="Nombres separados por coma" />
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-5 bg-white/30 p-4 rounded-xl border border-white/50">
-                                        <div>
-                                            <label className={labelClass}>&iquest;Registra Backlog?</label>
-                                            <select name="RegistraBacklogAMTFormato" value={formData.RegistraBacklogAMTFormato} onChange={handleChange} className={inputClass}>
-                                                <option value="SI">S&iacute;, Registrado</option>
-                                                <option value="NO">No Requiere</option>
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label className={labelClass}>Estado del Equipo</label>
-                                            <select name="EquipoDisponible" value={formData.EquipoDisponible} onChange={handleChange} className={inputClass}>
-                                                <option value="SI">Disponible (Operativo)</option>
-                                                <option value="NO">No Disponible (Parado)</option>
-                                            </select>
-                                        </div>
-                                    </div>
+                                    <div><label className={labelClass}>T&eacute;cnicos a Cargo</label><PeoplePicker siteUrl={SP_CONFIG.siteUrl} selectedUsers={formData.Tecnicos} onChange={(users) => setFormData({...formData, Tecnicos: users})} disabled={lockBase} /></div>
+                                    <div><label className={labelClass}>Trabajos Realizados</label><textarea name="TrabajosRealizados" value={formData.TrabajosRealizados} onChange={handleChange} disabled={lockBase} rows="6" className={`${inputClass} resize-none`} placeholder="Describe los trabajos ejecutados..."></textarea></div>
                                 </div>
                                 
                                 <div className="space-y-6">
-                                    <div>
-                                        <label className={labelClass}>Detalle del Backlog</label>
-                                        <textarea name="BacklogRegistrado" value={formData.BacklogRegistrado} onChange={handleChange} rows="3" className={`${inputClass} resize-none`} placeholder="Especificaciones del backlog..."></textarea>
-                                    </div>
-                                    <div>
-                                        <label className={labelClass}>Trabajos Pendientes</label>
-                                        <textarea name="Pendientes" value={formData.Pendientes} onChange={handleChange} rows="3" className={`${inputClass} resize-none`} placeholder="Repuestos, firmas, aprobaciones..."></textarea>
+                                    <div className="grid grid-cols-2 gap-5 bg-white/30 p-4 rounded-xl border border-white/50">
+                                        <div>
+                                            <label className={labelClass}>Estado del Equipo</label>
+                                            <select name="EquipoDisponible" value={formData.EquipoDisponible} onChange={handleChange} disabled={lockEstado} className={`${inputClass} !border-cerrejon-orange !ring-2 !ring-cerrejon-orange/50`}>
+                                                <option value="SI">Disponible (Operativo)</option><option value="NO">No Disponible (Parado)</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className={labelClass}>&iquest;Registra Backlog?</label>
+                                            <select name="RegistraBacklogAMTFormato" value={formData.RegistraBacklogAMTFormato} onChange={handleChange} disabled={lockRegistraBacklog} className={inputClass}>
+                                                <option value="SI">S&iacute;, Registrado</option><option value="NO">No Requiere</option>
+                                            </select>
+                                        </div>
                                     </div>
                                     
-                                    <div className="bg-white/40 p-5 rounded-xl border border-dashed border-gray-400">
-                                        <label className={labelClass}>Adjuntar Im&aacute;genes (Para convertir a Base64)</label>
-                                        <input 
-                                            type="file" 
-                                            accept="image/*" 
-                                            multiple 
-                                            onChange={handleFileChange} 
-                                            ref={fileInputRef}
-                                            className="block w-full text-sm text-gray-700 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-bold file:bg-cerrejon-orange file:text-white hover:file:bg-orange-800 transition-colors cursor-pointer"
-                                        />
-                                        {evidenceFiles.length > 0 && (
-                                            <p className="mt-2 text-xs font-bold text-red-600 bg-red-100 p-2 rounded">
-                                                Advertencia: Estas {evidenceFiles.length} im&aacute;genes se convertir&aacute;n a texto. Si pesan mucho, la red rechazar&aacute; la petici&oacute;n.
-                                            </p>
-                                        )}
-                                    </div>
+                                    {formData.EquipoDisponible === "NO" && (
+                                        <div className="bg-red-50/80 p-5 rounded-xl border border-red-200">
+                                            {formData.HistorialPendientes && formData.HistorialPendientes.length > 0 && (
+                                                <div className="mb-4 space-y-3">
+                                                    <label className={labelClass}>Historial de Pendientes Inmutables</label>
+                                                    {formData.HistorialPendientes.map((hist, i) => (
+                                                        <div key={i} className="bg-white p-3 rounded shadow-sm border border-red-100 text-sm">
+                                                            <div className="text-xs text-gray-500 font-bold mb-1">{hist.fechaHora}</div><div className="text-gray-800">{hist.texto}</div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                            {!lockEstado && (
+                                                <div>
+                                                    <label className={labelClass}>Agregar Nuevo Trabajo Pendiente</label>
+                                                    <textarea value={nuevoPendiente} onChange={(e) => setNuevoPendiente(e.target.value)} rows="3" className={`${inputClass} resize-none bg-white`} placeholder="Se guardar&aacute; con fecha y hora inmutable. Al cerrar el equipo, esto pasar&aacute; a Trabajos Realizados."></textarea>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                    
+                                    {!isEditing && (
+                                        <div className="bg-white/40 p-5 rounded-xl border border-dashed border-gray-400">
+                                            <label className={labelClass}>Evidencias (Codificadas a Base64)</label>
+                                            <input type="file" accept="image/*" multiple onChange={handleFileChange} ref={fileInputRef} className="block w-full text-sm text-gray-700 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:font-bold file:bg-cerrejon-orange file:text-white cursor-pointer" />
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 
+                            {/* SECCIÓN DINÁMICA DE BACKLOGS (SIEMPRE DESBLOQUEADA) */}
+                            {formData.RegistraBacklogAMTFormato === "SI" && (
+                                <div className="mt-8 border-t-2 border-cerrejon-orange pt-6">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <h3 className="text-lg font-black text-gray-800 uppercase tracking-wide">Gesti&oacute;n de Backlogs</h3>
+                                        <button type="button" onClick={addBacklog} className="bg-cerrejon-dark text-white px-4 py-2 rounded font-bold text-xs hover:bg-gray-700 transition-colors">
+                                            + AGREGAR BACKLOG
+                                        </button>
+                                    </div>
+                                    
+                                    {formData.Backlogs && formData.Backlogs.length === 0 && <p className="text-sm text-gray-500 italic">No hay backlogs agregados a&uacute;n.</p>}
+                                    
+                                    <div className="space-y-6">
+                                        {formData.Backlogs && formData.Backlogs.map((backlog, bIndex) => (
+                                            <div key={backlog.id} className="bg-white p-5 rounded-xl border border-gray-300 shadow-sm relative">
+                                                <button type="button" onClick={() => setFormData({...formData, Backlogs: formData.Backlogs.filter((_, i) => i !== bIndex)})} className="absolute top-2 right-2 text-red-500 font-bold hover:text-red-700">&times; Eliminar</button>
+                                                <div className="grid grid-cols-1 md:grid-cols-12 gap-4 mb-4">
+                                                    <div className="md:col-span-6"><label className="block text-[10px] font-bold text-gray-500 uppercase">Diagn&oacute;stico</label><input type="text" value={backlog.diagnostico} onChange={e => updateBacklog(bIndex, 'diagnostico', e.target.value)} className="w-full border-b border-gray-300 outline-none focus:border-cerrejon-orange text-sm p-1" /></div>
+                                                    <div className="md:col-span-2"><label className="block text-[10px] font-bold text-gray-500 uppercase">HD (Horas Down)</label><input type="number" value={backlog.hd} onChange={e => updateBacklog(bIndex, 'hd', e.target.value)} className="w-full border-b border-gray-300 outline-none focus:border-cerrejon-orange text-sm p-1" /></div>
+                                                    <div className="md:col-span-2"><label className="block text-[10px] font-bold text-gray-500 uppercase">HH (Horas Hombre)</label><input type="number" value={backlog.hh} onChange={e => updateBacklog(bIndex, 'hh', e.target.value)} className="w-full border-b border-gray-300 outline-none focus:border-cerrejon-orange text-sm p-1" /></div>
+                                                    <div className="md:col-span-2"><label className="block text-[10px] font-bold text-gray-500 uppercase">Prioridad</label>
+                                                        <select value={backlog.prioridad} onChange={e => updateBacklog(bIndex, 'prioridad', e.target.value)} className="w-full border-b border-gray-300 outline-none focus:border-cerrejon-orange text-sm p-1 bg-transparent">
+                                                            <option value="P1">P1</option><option value="P2">P2</option><option value="P3">P3</option><option value="P4">P4</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                                <div className="bg-gray-50 p-3 rounded border border-gray-200">
+                                                    <div className="flex justify-between items-center mb-2">
+                                                        <span className="text-xs font-bold text-gray-700">Lista de Repuestos</span>
+                                                        <button type="button" onClick={() => addRepuesto(bIndex)} className="text-[10px] bg-gray-200 px-2 py-1 rounded font-bold hover:bg-gray-300">+ Agregar Repuesto</button>
+                                                    </div>
+                                                    {backlog.repuestos.map((rep, rIndex) => (
+                                                        <div key={rIndex} className="flex gap-3 mb-2 items-center">
+                                                            <input type="text" placeholder="Stockcode" value={rep.stockcode} onChange={e => updateRepuesto(bIndex, rIndex, 'stockcode', e.target.value)} className="w-1/2 text-xs border p-1 rounded" />
+                                                            <input type="number" placeholder="Cantidad" value={rep.cantidad} onChange={e => updateRepuesto(bIndex, rIndex, 'cantidad', e.target.value)} className="w-1/3 text-xs border p-1 rounded" />
+                                                            <button type="button" onClick={() => { const nb=[...formData.Backlogs]; nb[bIndex].repuestos.splice(rIndex,1); setFormData({...formData, Backlogs: nb}); }} className="text-red-500 text-lg font-bold">&times;</button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
                             <div className="flex justify-end gap-3 pt-4 border-t border-white/30">
-                                {editingId && (
-                                    <button type="button" onClick={() => {
-                                        setEditingId(null); 
-                                        setFormData(initialFormState);
-                                        setEvidenceFiles([]);
-                                        if(fileInputRef.current) fileInputRef.current.value = "";
-                                    }} className="px-6 py-3 bg-white/50 text-gray-700 font-bold rounded-xl hover:bg-white/80 transition-colors">
-                                        Cancelar Edici&oacute;n
-                                    </button>
+                                {isEditing && (
+                                    <button type="button" onClick={() => { setEditingId(null); setOriginalEstado(null); setOriginalBacklog(null); setFormData(initialFormState); setNuevoPendiente(""); }} className="px-6 py-3 bg-white/50 text-gray-700 font-bold rounded-xl hover:bg-white/80 transition-colors">Cancelar</button>
                                 )}
-                                <button type="submit" disabled={loading} className="px-10 py-3 bg-gradient-to-r from-cerrejon-orange to-red-600 text-white font-bold rounded-xl shadow-lg hover:shadow-xl hover:scale-[1.02] transition-all disabled:opacity-50 disabled:scale-100">
-                                    {loading ? "Codificando y Guardando..." : (editingId ? "Actualizar Registro" : "Crear Registro y Subir Base64")}
+                                <button type="submit" disabled={loading} className="px-10 py-3 bg-gradient-to-r from-cerrejon-orange to-red-600 text-white font-bold rounded-xl shadow-lg hover:scale-[1.02] transition-all disabled:opacity-50">
+                                    {loading ? "Procesando JSON..." : (isEditing ? "Actualizar Registro" : "Guardar Registro")}
                                 </button>
                             </div>
                         </form>
                     </div>
 
-                    {/* TABLA DE REGISTROS: ABAJO Y A LO ANCHO */}
+                    {/* TABLA INFERIOR RESUMIDA */}
                     <div className={`${glassCard} flex flex-col w-full overflow-hidden`}>
                         <div className="bg-gray-900/80 backdrop-blur-md px-6 py-5 flex justify-between items-center">
-                            <h2 className="text-lg font-bold text-white uppercase tracking-widest">Base de Datos de Motores</h2>
-                            <span className="bg-cerrejon-orange/20 text-cerrejon-gold text-xs px-3 py-1 rounded-md font-bold">{items.length} Registros Encontrados</span>
+                            <h2 className="text-lg font-bold text-white uppercase tracking-widest">Base de Datos (Vista Resumida)</h2>
                         </div>
                         
                         <div className="overflow-x-auto p-4">
-                            <table className="w-full text-left border-collapse min-w-[800px]">
+                            <table className="w-full text-left border-collapse">
                                 <thead>
                                     <tr className="border-b border-gray-400/50 text-xs uppercase font-extrabold text-gray-800">
-                                        <th className="p-4">OT / Equipo</th>
-                                        <th className="p-4">Fecha & Turno</th>
-                                        <th className="p-4">Diagn&oacute;stico</th>
-                                        <th className="p-4">T&eacute;cnicos</th>
-                                        <th className="p-4 text-center">Estado</th>
+                                        <th className="p-4">Fecha de Ejecuci&oacute;n</th>
+                                        <th className="p-4">OT Cliente</th>
+                                        <th className="p-4">Equipo Intervenido</th>
+                                        <th className="p-4 w-1/3">Diagn&oacute;stico Inicial</th>
+                                        <th className="p-4 text-center">Estado del Equipo</th>
                                         <th className="p-4 text-center">Acciones</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {items.length === 0 ? (
-                                        <tr><td colSpan="6" className="text-center p-8 text-gray-600 font-medium">No hay bit&aacute;coras registradas.</td></tr>
+                                        <tr><td colSpan="6" className="text-center p-8 font-medium">No hay registros.</td></tr>
                                     ) : (
                                         items.map((item) => {
-                                            const isAvailable = item.EquipoDisponible === 'SI';
+                                            const d = item.parsedData;
+                                            if (d.Error) return (<tr key={item.Id}><td colSpan="6" className="p-4 text-red-500">ID {item.Id}: {d.Error}</td></tr>);
+                                            
+                                            const isAvailable = d.EquipoDisponible === 'SI';
+
                                             return (
-                                                <tr key={item.Id} className="border-b border-gray-300/30 hover:bg-white/50 transition-colors">
-                                                    <td className="p-4">
-                                                        <div className="font-black text-cerrejon-orange text-lg">OT-{item.OT || item.Title}</div>
-                                                        <div className="font-bold text-gray-800">{item.Equipo}</div>
-                                                    </td>
-                                                    <td className="p-4">
-                                                        <div className="font-bold text-gray-700">{item.Fecha ? item.Fecha.split('T')[0] : "N/A"}</div>
-                                                        <div className="text-xs text-gray-500 font-medium uppercase">Turno {item.Turno}</div>
-                                                    </td>
-                                                    <td className="p-4 text-sm text-gray-700 max-w-xs truncate" title={item.Diagnostico}>
-                                                        {item.Diagnostico || "-"}
-                                                    </td>
-                                                    <td className="p-4 text-sm font-medium text-gray-600">
-                                                        {item.Tecnicos || "-"}
-                                                    </td>
+                                                <tr key={item.Id} className="border-b border-gray-300/30 hover:bg-white/50 transition-colors align-top">
+                                                    <td className="p-4 font-medium text-gray-800">{d.Fecha}</td>
+                                                    <td className="p-4 font-black text-cerrejon-orange">OT-{d.OTCliente}</td>
+                                                    <td className="p-4 font-bold text-gray-800">{d.Equipo}</td>
+                                                    <td className="p-4 text-sm text-gray-700 truncate max-w-xs" title={d.Diagnostico}>{d.Diagnostico}</td>
                                                     <td className="p-4 text-center">
-                                                        <span className={`px-3 py-1 rounded text-xs font-bold shadow-sm ${isAvailable ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                                                            {isAvailable ? 'Operativo' : 'Fuera de Servicio'}
-                                                        </span>
+                                                        <span className={`px-2 py-1 rounded text-xs font-bold ${isAvailable ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>{isAvailable ? 'Operativo' : 'Parado'}</span>
                                                     </td>
                                                     <td className="p-4">
-                                                        <div className="flex items-center justify-center gap-3">
-                                                            <button 
-                                                                onClick={() => openModal(item.Id)} 
-                                                                title="Consultar im\u00E1genes Base64 en BD secundaria" 
-                                                                disabled={loadingImages}
-                                                                className="text-white bg-cerrejon-dark hover:bg-gray-700 p-2 rounded transition-colors flex items-center justify-center shadow-md disabled:opacity-50"
-                                                            >
-                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                                                    <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
-                                                                    <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
-                                                                </svg>
+                                                        <div className="flex items-center justify-center gap-2">
+                                                            <button onClick={() => setViewModalItem(item)} title="Ver Detalle Completo" className="text-white bg-cerrejon-dark hover:bg-gray-700 p-2 rounded shadow transition-colors">
+                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z" /><path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" /></svg>
                                                             </button>
-                                                            <button 
-                                                                onClick={() => handleEdit(item)} 
-                                                                title="Editar Registro" 
-                                                                className="text-cerrejon-orange bg-orange-100 hover:bg-orange-200 p-2 rounded transition-colors shadow-md"
-                                                            >
-                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                                                    <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-                                                                </svg>
+                                                            <button onClick={() => handleEdit(item)} title="Editar" className="text-cerrejon-orange bg-orange-100 hover:bg-orange-200 p-2 rounded shadow transition-colors">
+                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
                                                             </button>
                                                         </div>
                                                     </td>
@@ -523,65 +511,118 @@
                         </div>
                     </div>
 
-                    {/* LIGHTBOX DE EVIDENCIAS BASE64 */}
+                    {/* MODAL: VER DETALLE COMPLETO */}
+                    {viewModalItem && (() => {
+                        const d = viewModalItem.parsedData;
+                        const imgs = d.ImagenesBase64 || [];
+                        const isAvailable = d.EquipoDisponible === 'SI';
+                        
+                        return (
+                            <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in p-4 overflow-y-auto">
+                                <div className="bg-white rounded-2xl w-full max-w-4xl shadow-2xl flex flex-col my-auto relative border-t-8 border-cerrejon-orange">
+                                    
+                                    <div className="flex justify-between items-center p-6 border-b border-gray-200 bg-gray-50 rounded-t-2xl">
+                                        <div>
+                                            <h2 className="text-2xl font-black text-gray-800">Detalle de Bit&aacute;cora</h2>
+                                            <p className="text-sm font-bold text-cerrejon-orange mt-1">OT-{d.OTCliente} | Equipo: {d.Equipo}</p>
+                                        </div>
+                                        <button onClick={() => setViewModalItem(null)} className="text-gray-400 hover:text-red-500 transition-colors bg-white p-2 rounded-full shadow-sm border border-gray-200">
+                                            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                        </button>
+                                    </div>
+
+                                    <div className="p-6 overflow-y-auto max-h-[75vh] space-y-8">
+                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-gray-100 p-4 rounded-xl border border-gray-200">
+                                            <div><span className="block text-[10px] font-bold text-gray-500 uppercase">Fecha</span><span className="font-bold text-gray-800">{d.Fecha}</span></div>
+                                            <div><span className="block text-[10px] font-bold text-gray-500 uppercase">Turno</span><span className="font-bold text-gray-800">{d.Turno}</span></div>
+                                            <div><span className="block text-[10px] font-bold text-gray-500 uppercase">Grupo</span><span className="font-bold text-gray-800">{d.Grupo}</span></div>
+                                            <div>
+                                                <span className="block text-[10px] font-bold text-gray-500 uppercase">Estado General</span>
+                                                <span className={`inline-block px-2 py-1 mt-1 rounded text-xs font-bold ${isAvailable ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>{isAvailable ? 'Operativo' : 'Parado'}</span>
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-4">
+                                            <div>
+                                                <h4 className="text-xs font-bold text-cerrejon-dark uppercase border-b border-gray-200 pb-1 mb-2">Diagn&oacute;stico Inicial</h4>
+                                                <p className="text-sm text-gray-700 bg-gray-50 p-3 rounded border border-gray-100 whitespace-pre-wrap">{d.Diagnostico || "Sin registro"}</p>
+                                            </div>
+                                            <div>
+                                                <h4 className="text-xs font-bold text-cerrejon-dark uppercase border-b border-gray-200 pb-1 mb-2">Trabajos Realizados</h4>
+                                                <p className="text-sm text-gray-700 bg-gray-50 p-3 rounded border border-gray-100 whitespace-pre-wrap">{d.TrabajosRealizados || "Sin registro"}</p>
+                                            </div>
+                                            
+                                            {!isAvailable && d.HistorialPendientes && d.HistorialPendientes.length > 0 && (
+                                                <div>
+                                                    <h4 className="text-xs font-bold text-red-600 uppercase border-b border-red-200 pb-1 mb-2">Historial de Pendientes (Activos)</h4>
+                                                    <div className="bg-red-50 p-3 rounded border border-red-100 space-y-2">
+                                                        {d.HistorialPendientes.map((h,i) => (
+                                                            <div key={i} className="text-sm border-b border-red-100 pb-2 last:border-0"><span className="font-bold text-xs text-red-800 block">[{h.fechaHora}]</span>{h.texto}</div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {d.Backlogs && d.Backlogs.length > 0 && (
+                                                <div>
+                                                    <h4 className="text-xs font-bold text-cerrejon-dark uppercase border-b border-gray-200 pb-1 mb-2">Backlogs Registrados ({d.Backlogs.length})</h4>
+                                                    <div className="grid grid-cols-1 gap-3">
+                                                        {d.Backlogs.map((b,i) => (
+                                                            <div key={i} className="bg-orange-50 p-3 rounded border border-orange-100 text-sm">
+                                                                <div className="font-bold text-cerrejon-orange mb-1">{b.diagnostico}</div>
+                                                                <div className="text-xs text-gray-600 mb-2"><b>Prio:</b> {b.prioridad} &bull; <b>HD:</b> {b.hd} &bull; <b>HH:</b> {b.hh}</div>
+                                                                {b.repuestos && b.repuestos.length > 0 && (
+                                                                    <div className="bg-white p-2 rounded text-xs border border-orange-50">
+                                                                        <b>Repuestos:</b> {b.repuestos.map(r=>`${r.stockcode} (${r.cantidad})`).join(', ')}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-gray-100 p-4 rounded-xl border border-gray-200">
+                                            <div>
+                                                <h4 className="text-[10px] font-bold text-gray-500 uppercase mb-1">T&eacute;cnicos Involucrados</h4>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {(d.Tecnicos || []).length > 0 ? d.Tecnicos.map((t, idx) => (
+                                                        <span key={idx} className="bg-white border border-gray-300 text-xs font-bold px-2 py-1 rounded-full shadow-sm">{t.nombre}</span>
+                                                    )) : <span className="text-xs italic text-gray-500">Ninguno</span>}
+                                                </div>
+                                            </div>
+                                            <div>
+                                                {imgs.length > 0 ? (
+                                                    <button onClick={() => {setModalImages(imgs); setActiveImageIndex(0);}} className="bg-cerrejon-dark text-white font-bold text-sm px-4 py-2 rounded-lg shadow hover:bg-gray-700 transition-colors flex items-center gap-2">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" /></svg>
+                                                        Ver {imgs.length} Evidencia(s)
+                                                    </button>
+                                                ) : (
+                                                    <span className="text-xs font-bold text-gray-400 bg-gray-200 px-3 py-2 rounded-lg">Sin Evidencias Fotogr&aacute;ficas</span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })()}
+
+                    {/* MODAL LIGHTBOX DE IMÁGENES JSON */}
                     {modalImages && modalImages.length > 0 && (
                         <div className="fixed inset-0 z-[100] flex flex-col bg-black/95 backdrop-blur-md animate-fade-in">
                             <div className="flex justify-between items-center p-4 text-white border-b border-white/10">
-                                <div className="font-bold tracking-widest text-sm text-cerrejon-gold uppercase">
-                                    Evidencia {activeImageIndex + 1} de {modalImages.length}
-                                </div>
-                                <div className="flex gap-4 items-center">
-                                    <span className="text-xs text-gray-400 hidden md:block">{modalImages[activeImageIndex].Title}</span>
-                                    <button onClick={closeModal} className="text-white hover:text-red-500 transition-colors bg-white/10 p-2 rounded-full">
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                        </svg>
-                                    </button>
-                                </div>
+                                <div className="font-bold tracking-widest text-sm text-cerrejon-gold uppercase">Evidencia {activeImageIndex + 1} de {modalImages.length}</div>
+                                <button onClick={() => setModalImages(null)} className="bg-white/10 p-2 rounded-full hover:text-red-500"><svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
                             </div>
-
-                            <div className="flex-1 flex items-center justify-between relative p-4 overflow-hidden">
-                                {modalImages.length > 1 && (
-                                    <button onClick={prevImage} className="absolute left-4 z-10 p-3 bg-black/50 hover:bg-cerrejon-orange text-white rounded-full transition-all">
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                                        </svg>
-                                    </button>
-                                )}
-                                
-                                <div className="w-full h-full flex items-center justify-center">
-                                    <img 
-                                        src={modalImages[activeImageIndex].Evidencia} 
-                                        alt={modalImages[activeImageIndex].Title} 
-                                        className="max-h-full max-w-full object-contain drop-shadow-2xl" 
-                                    />
-                                </div>
-
-                                {modalImages.length > 1 && (
-                                    <button onClick={nextImage} className="absolute right-4 z-10 p-3 bg-black/50 hover:bg-cerrejon-orange text-white rounded-full transition-all">
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                                        </svg>
-                                    </button>
-                                )}
+                            <div className="flex-1 flex items-center justify-center p-4 relative">
+                                {modalImages.length > 1 && <button onClick={()=>setActiveImageIndex(p=>p===0?modalImages.length-1:p-1)} className="absolute left-4 p-3 bg-black/50 text-white rounded-full"><svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7"/></svg></button>}
+                                <img src={modalImages[activeImageIndex].data} alt="Evidencia Decodificada" className="max-h-full max-w-full object-contain" />
+                                {modalImages.length > 1 && <button onClick={()=>setActiveImageIndex(p=>p===modalImages.length-1?0:p+1)} className="absolute right-4 p-3 bg-black/50 text-white rounded-full"><svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/></svg></button>}
                             </div>
-
-                            {modalImages.length > 1 && (
-                                <div className="h-28 bg-black/80 flex items-center overflow-x-auto gap-2 p-4 no-scrollbar border-t border-white/10">
-                                    {modalImages.map((img, idx) => (
-                                        <div 
-                                            key={idx} 
-                                            onClick={() => setActiveImageIndex(idx)}
-                                            className={`h-full min-w-[5rem] md:min-w-[7rem] cursor-pointer rounded-lg overflow-hidden transition-all duration-300 border-2 ${idx === activeImageIndex ? 'border-cerrejon-orange scale-105 opacity-100' : 'border-transparent opacity-40 hover:opacity-80'}`}
-                                        >
-                                            <img src={img.Evidencia} alt="miniatura" className="w-full h-full object-cover" />
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
                         </div>
                     )}
-
                 </div>
             );
         }
