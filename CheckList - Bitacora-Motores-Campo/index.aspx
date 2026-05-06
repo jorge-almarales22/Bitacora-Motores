@@ -167,6 +167,10 @@
             const [modalImages, setModalImages] = useState(null); 
             const [activeImageIndex, setActiveImageIndex] = useState(0);
 
+            // Estado para el modal dinámico de pendientes
+            const [isPendingModalOpen, setIsPendingModalOpen] = useState(false);
+            const [pendingModalData, setPendingModalData] = useState({ Turno: "Dia", Grupo: "Guerreros", Tecnicos: [], texto: "" });
+
             const fileInputRef = useRef(null);
 
             useEffect(() => { fetchItems(); }, []);
@@ -230,6 +234,22 @@
                 setFormData({ ...formData, Backlogs: newBacklogs });
             };
 
+            // Guardar pendiente desde el modal
+            const handleSavePendingModal = () => {
+                if(!pendingModalData.texto.trim()) return;
+                const newHistory = [...(formData.HistorialPendientes || [])];
+                newHistory.push({
+                    texto: pendingModalData.texto,
+                    fechaHora: new Date().toLocaleString(),
+                    turno: pendingModalData.Turno,
+                    grupo: pendingModalData.Grupo,
+                    tecnicos: pendingModalData.Tecnicos
+                });
+                setFormData({ ...formData, HistorialPendientes: newHistory });
+                setIsPendingModalOpen(false);
+                setPendingModalData({ Turno: "Dia", Grupo: "Guerreros", Tecnicos: [], texto: "" });
+            };
+
             const handleSubmit = async (e) => {
                 e.preventDefault();
                 setLoading(true); setError(null);
@@ -240,13 +260,25 @@
                     
                     let finalDataObj = { ...formData };
 
-                    if (finalDataObj.EquipoDisponible === "NO" && nuevoPendiente.trim() !== "") {
+                    // Si NO está editando y deja un pendiente rápido en el formulario principal
+                    if (!isEditing && finalDataObj.EquipoDisponible === "NO" && nuevoPendiente.trim() !== "") {
                         finalDataObj.HistorialPendientes = [...(finalDataObj.HistorialPendientes || [])];
-                        finalDataObj.HistorialPendientes.push({ texto: nuevoPendiente, fechaHora: new Date().toLocaleString() });
+                        finalDataObj.HistorialPendientes.push({ 
+                            texto: nuevoPendiente, 
+                            fechaHora: new Date().toLocaleString(),
+                            turno: finalDataObj.Turno,
+                            grupo: finalDataObj.Grupo,
+                            tecnicos: finalDataObj.Tecnicos
+                        });
                     }
 
+                    // Concatenar pendientes en trabajos realizados si el equipo pasa a DISPONIBLE
                     if (finalDataObj.EquipoDisponible === "SI" && finalDataObj.HistorialPendientes && finalDataObj.HistorialPendientes.length > 0) {
-                        const pendientesText = finalDataObj.HistorialPendientes.map(h => `[${h.fechaHora}] ${h.texto}`).join('\n');
+                        const pendientesText = finalDataObj.HistorialPendientes.map(h => {
+                            const tecs = h.tecnicos && h.tecnicos.length > 0 ? h.tecnicos.map(t=>t.nombre.split(' ')[0]).join(', ') : 'Sin t\u00E9cnicos';
+                            return `[${h.fechaHora}] Turno: ${h.turno || 'N/A'} | Grupo: ${h.grupo || 'N/A'} | T\u00E9cs: ${tecs}\nDetalle: ${h.texto}`;
+                        }).join('\n\n');
+                        
                         finalDataObj.TrabajosRealizados = (finalDataObj.TrabajosRealizados ? finalDataObj.TrabajosRealizados + '\n\n' : '') + "--- TAREAS COMPLETADAS DESDE PENDIENTES ---\n" + pendientesText;
                         finalDataObj.HistorialPendientes = [];
                     }
@@ -376,16 +408,30 @@
                                                     <label className={labelClass}>Historial de Pendientes Inmutables</label>
                                                     {formData.HistorialPendientes.map((hist, i) => (
                                                         <div key={i} className="bg-white p-3 rounded shadow-sm border border-red-100 text-sm">
-                                                            <div className="text-xs text-gray-500 font-bold mb-1">{hist.fechaHora}</div><div className="text-gray-800">{hist.texto}</div>
+                                                            <div className="text-[10px] text-gray-500 font-bold mb-1 uppercase">
+                                                                {hist.fechaHora} &bull; T: {hist.turno} &bull; G: {hist.grupo}
+                                                            </div>
+                                                            <div className="text-gray-800 mb-1">{hist.texto}</div>
+                                                            <div className="text-[10px] text-gray-400 italic font-bold">
+                                                                Por: {hist.tecnicos && hist.tecnicos.length > 0 ? hist.tecnicos.map(t=>t.nombre.split(' ')[0]).join(', ') : 'ND'}
+                                                            </div>
                                                         </div>
                                                     ))}
                                                 </div>
                                             )}
-                                            {!lockEstado && (
+                                            
+                                            {/* Si es NUEVO registro, muestra el text area normal. Si está EDITANDO, muestra el botón para el Modal */}
+                                            {!isEditing ? (
                                                 <div>
-                                                    <label className={labelClass}>Agregar Nuevo Trabajo Pendiente</label>
-                                                    <textarea value={nuevoPendiente} onChange={(e) => setNuevoPendiente(e.target.value)} rows="3" className={`${inputClass} resize-none bg-white`} placeholder="Se guardar&aacute; con fecha y hora inmutable. Al cerrar el equipo, esto pasar&aacute; a Trabajos Realizados."></textarea>
+                                                    <label className={labelClass}>Agregar Pendiente de Cierre de Turno</label>
+                                                    <textarea value={nuevoPendiente} onChange={(e) => setNuevoPendiente(e.target.value)} rows="3" className={`${inputClass} resize-none bg-white`} placeholder="Se guardar&aacute; con fecha y hora inmutable asumiendo el turno actual."></textarea>
                                                 </div>
+                                            ) : (
+                                                !lockEstado && (
+                                                    <button type="button" onClick={() => setIsPendingModalOpen(true)} className="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow-md transition-colors uppercase text-sm tracking-wide">
+                                                        + Agregar Nuevo Trabajo Pendiente
+                                                    </button>
+                                                )
                                             )}
                                         </div>
                                     )}
@@ -399,7 +445,7 @@
                                 </div>
                             </div>
 
-                            {/* SECCIÓN DINÁMICA DE BACKLOGS (SIEMPRE DESBLOQUEADA) */}
+                            {/* SECCIÓN DINÁMICA DE BACKLOGS */}
                             {formData.RegistraBacklogAMTFormato === "SI" && (
                                 <div className="mt-8 border-t-2 border-cerrejon-orange pt-6">
                                     <div className="flex justify-between items-center mb-4">
@@ -511,6 +557,46 @@
                         </div>
                     </div>
 
+                    {/* MODAL: REGISTRAR NUEVO PENDIENTE (AL EDITAR) */}
+                    {isPendingModalOpen && (
+                        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
+                            <div className="bg-white rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden">
+                                <div className="bg-red-600 text-white p-4 flex justify-between items-center">
+                                    <h3 className="font-bold tracking-wider uppercase text-sm">Registrar Pendiente / Cambio de Turno</h3>
+                                    <button onClick={() => setIsPendingModalOpen(false)} className="hover:text-gray-200">&times;</button>
+                                </div>
+                                <div className="p-6 space-y-5">
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Turno Entrante</label>
+                                            <select value={pendingModalData.Turno} onChange={(e) => setPendingModalData({...pendingModalData, Turno: e.target.value})} className="w-full border border-gray-300 rounded p-2 text-sm outline-none focus:border-red-500">
+                                                <option value="Dia">D&iacute;a</option><option value="Noche">Noche</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Grupo Entrante</label>
+                                            <select value={pendingModalData.Grupo} onChange={(e) => setPendingModalData({...pendingModalData, Grupo: e.target.value})} className="w-full border border-gray-300 rounded p-2 text-sm outline-none focus:border-red-500">
+                                                <option value="Guerreros">Guerreros</option><option value="Jaguares">Jaguares</option><option value="Cardenales">Cardenales</option><option value="Valientes">Valientes</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">T&eacute;cnicos que reciben el pendiente</label>
+                                        <PeoplePicker siteUrl={SP_CONFIG.siteUrl} selectedUsers={pendingModalData.Tecnicos} onChange={(users) => setPendingModalData({...pendingModalData, Tecnicos: users})} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Detalle del trabajo pendiente</label>
+                                        <textarea value={pendingModalData.texto} onChange={(e) => setPendingModalData({...pendingModalData, texto: e.target.value})} rows="4" className="w-full border border-gray-300 rounded p-2 text-sm outline-none focus:border-red-500 resize-none" placeholder="Especificar qu&eacute; hace falta..."></textarea>
+                                    </div>
+                                    <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
+                                        <button type="button" onClick={() => setIsPendingModalOpen(false)} className="px-4 py-2 bg-gray-200 text-gray-700 font-bold rounded hover:bg-gray-300">Cancelar</button>
+                                        <button type="button" onClick={handleSavePendingModal} className="px-6 py-2 bg-red-600 text-white font-bold rounded shadow hover:bg-red-700 disabled:opacity-50" disabled={!pendingModalData.texto.trim()}>Agregar al Historial</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {/* MODAL: VER DETALLE COMPLETO */}
                     {viewModalItem && (() => {
                         const d = viewModalItem.parsedData;
@@ -533,9 +619,9 @@
 
                                     <div className="p-6 overflow-y-auto max-h-[75vh] space-y-8">
                                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-gray-100 p-4 rounded-xl border border-gray-200">
-                                            <div><span className="block text-[10px] font-bold text-gray-500 uppercase">Fecha</span><span className="font-bold text-gray-800">{d.Fecha}</span></div>
-                                            <div><span className="block text-[10px] font-bold text-gray-500 uppercase">Turno</span><span className="font-bold text-gray-800">{d.Turno}</span></div>
-                                            <div><span className="block text-[10px] font-bold text-gray-500 uppercase">Grupo</span><span className="font-bold text-gray-800">{d.Grupo}</span></div>
+                                            <div><span className="block text-[10px] font-bold text-gray-500 uppercase">Fecha Inicio</span><span className="font-bold text-gray-800">{d.Fecha}</span></div>
+                                            <div><span className="block text-[10px] font-bold text-gray-500 uppercase">Turno Inicio</span><span className="font-bold text-gray-800">{d.Turno}</span></div>
+                                            <div><span className="block text-[10px] font-bold text-gray-500 uppercase">Grupo Inicio</span><span className="font-bold text-gray-800">{d.Grupo}</span></div>
                                             <div>
                                                 <span className="block text-[10px] font-bold text-gray-500 uppercase">Estado General</span>
                                                 <span className={`inline-block px-2 py-1 mt-1 rounded text-xs font-bold ${isAvailable ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>{isAvailable ? 'Operativo' : 'Parado'}</span>
@@ -548,17 +634,28 @@
                                                 <p className="text-sm text-gray-700 bg-gray-50 p-3 rounded border border-gray-100 whitespace-pre-wrap">{d.Diagnostico || "Sin registro"}</p>
                                             </div>
                                             <div>
-                                                <h4 className="text-xs font-bold text-cerrejon-dark uppercase border-b border-gray-200 pb-1 mb-2">Trabajos Realizados</h4>
+                                                <h4 className="text-xs font-bold text-cerrejon-dark uppercase border-b border-gray-200 pb-1 mb-2">Trabajos Realizados (Acumulado)</h4>
                                                 <p className="text-sm text-gray-700 bg-gray-50 p-3 rounded border border-gray-100 whitespace-pre-wrap">{d.TrabajosRealizados || "Sin registro"}</p>
                                             </div>
                                             
                                             {!isAvailable && d.HistorialPendientes && d.HistorialPendientes.length > 0 && (
                                                 <div>
-                                                    <h4 className="text-xs font-bold text-red-600 uppercase border-b border-red-200 pb-1 mb-2">Historial de Pendientes (Activos)</h4>
+                                                    <h4 className="text-xs font-bold text-red-600 uppercase border-b border-red-200 pb-1 mb-2">Historial de Pendientes y Entregas de Turno</h4>
                                                     <div className="bg-red-50 p-3 rounded border border-red-100 space-y-2">
-                                                        {d.HistorialPendientes.map((h,i) => (
-                                                            <div key={i} className="text-sm border-b border-red-100 pb-2 last:border-0"><span className="font-bold text-xs text-red-800 block">[{h.fechaHora}]</span>{h.texto}</div>
-                                                        ))}
+                                                        {d.HistorialPendientes.map((h,i) => {
+                                                            const tecs = h.tecnicos && h.tecnicos.length > 0 ? h.tecnicos.map(t=>t.nombre.split(' ')[0]).join(', ') : 'ND';
+                                                            return (
+                                                                <div key={i} className="text-sm border-b border-red-100 pb-3 last:border-0">
+                                                                    <div className="flex flex-wrap gap-2 mb-1">
+                                                                        <span className="font-bold text-[10px] bg-red-200 text-red-800 px-2 py-0.5 rounded">{h.fechaHora}</span>
+                                                                        <span className="font-bold text-[10px] bg-white border border-red-200 text-gray-600 px-2 py-0.5 rounded">T: {h.turno || 'ND'}</span>
+                                                                        <span className="font-bold text-[10px] bg-white border border-red-200 text-gray-600 px-2 py-0.5 rounded">G: {h.grupo || 'ND'}</span>
+                                                                    </div>
+                                                                    <div className="text-gray-800 mb-1">{h.texto}</div>
+                                                                    <div className="text-[10px] text-gray-500 italic font-bold">Asignado a: {tecs}</div>
+                                                                </div>
+                                                            );
+                                                        })}
                                                     </div>
                                                 </div>
                                             )}
@@ -585,7 +682,7 @@
 
                                         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-gray-100 p-4 rounded-xl border border-gray-200">
                                             <div>
-                                                <h4 className="text-[10px] font-bold text-gray-500 uppercase mb-1">T&eacute;cnicos Involucrados</h4>
+                                                <h4 className="text-[10px] font-bold text-gray-500 uppercase mb-1">T&eacute;cnicos Iniciales</h4>
                                                 <div className="flex flex-wrap gap-2">
                                                     {(d.Tecnicos || []).length > 0 ? d.Tecnicos.map((t, idx) => (
                                                         <span key={idx} className="bg-white border border-gray-300 text-xs font-bold px-2 py-1 rounded-full shadow-sm">{t.nombre}</span>
